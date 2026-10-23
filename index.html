@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="cartas/1_espada.svg" />
+  <title>Truco</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="layout-principal">
+
+    <!-- COLUMNA IZQUIERDA: MESA DE JUEGO -->
+    <main class="game-container">
+      <!-- Marcador a 30 Puntos con Switch de Tema -->
+      <header class="scoreboard">
+        <div class="score-box">
+          <span class="label">TÚ</span>
+          <span id="score-jugador" class="pts">0</span>
+          <span id="etapa-jugador" class="sub-label">Malas</span>
+        </div>
+        <div class="match-info">
+          <h2>TRUCO</h2>
+          <span id="info-mano">Mano actual: Tú</span>
+          <div class="sub-header-row">
+            <span class="meta-label">A 30 puntos</span>
+            <!-- SWITCH DE MODO CLARO / OSCURO -->
+            <button type="button" id="btn-theme-toggle" class="btn-theme-toggle" onclick="alternarTema()" title="Cambiar tema">
+              <span id="theme-icon">☀️</span> <span id="theme-text">Modo Claro</span>
+            </button>
+          </div>
+        </div>
+        <div class="score-box">
+          <span class="label">RIVAL</span>
+          <span id="score-bot" class="pts">0</span>
+          <span id="etapa-bot" class="sub-label">Malas</span>
+        </div>
+      </header>
+
+      <!-- Cartas del Rival -->
+      <section class="player-zone bot-zone">
+        <div class="zone-info">
+          <span>Rival (Computadora)</span>
+          <span id="bot-status" class="status-bubble">Esperando...</span>
+        </div>
+        <div id="cartas-bot" class="hand"></div>
+      </section>
+
+      <!-- Mesa Central -->
+      <section class="table">
+        <div class="table-surface">
+          <div class="played-card-slot" id="slot-bot">
+            <span class="slot-placeholder">Carta Rival</span>
+          </div>
+          <div class="vs-divider">VS</div>
+          <div class="played-card-slot" id="slot-jugador">
+            <span class="slot-placeholder">Tu Carta</span>
+          </div>
+        </div>
+        <div id="game-dialog" class="dialog-box">¡Comienza la partida a 30 puntos!</div>
+      </section>
+
+      <!-- Panel de Respuestas a Cantos -->
+      <div id="panel-respuesta" class="response-panel hidden">
+        <span id="respuesta-pregunta" class="respuesta-texto">El rival cantó algo</span>
+        <div id="botones-respuesta" class="response-buttons"></div>
+      </div>
+
+      <!-- Panel de Acciones -->
+      <div id="panel-acciones" class="actions-panel">
+        <button type="button" id="btn-envido" class="action-btn envido" onclick="cantarEnvido('envido')">Envido</button>
+        <button type="button" id="btn-real-envido" class="action-btn envido" onclick="cantarEnvido('real-envido')">Real Envido</button>
+        <button type="button" id="btn-falta-envido" class="action-btn envido" onclick="cantarEnvido('falta-envido')">Falta Envido</button>
+        
+        <button type="button" id="btn-canto-truco" class="action-btn truco" onclick="cantarAccionTruco()">Truco</button>
+
+        <button type="button" id="btn-irse" class="action-btn danger" onclick="irseAlMazo()">Irse al Mazo</button>
+        <button type="button" id="btn-siguiente" class="action-btn next hidden" onclick="iniciarNuevaMano()">Siguiente Mano</button>
+      </div>
+
+      <!-- Cartas del Jugador -->
+      <section class="player-zone user-zone">
+        <div class="zone-info">
+          <span>Tus Cartas</span>
+          <span id="tanto-info" class="tanto-pill">Tanto: 0</span>
+        </div>
+        <div id="cartas-jugador" class="hand"></div>
+      </section>
+    </main>
+
+    <!-- COLUMNA DERECHA: BITÁCORA LATERAL -->
+    <aside class="bitacora-lateral">
+      <div class="bitacora-header">
+        <div class="bitacora-titulo">
+          <span class="icono">📜</span>
+          <span>Bitácora en Vivo</span>
+        </div>
+        <div class="bitacora-controles">
+          <span id="total-entradas" class="contador-jugadas">0 jugadas</span>
+          <button type="button" class="btn-reiniciar-partido" onclick="reiniciarPartidoCompleto()" title="Reiniciar partido de cero">Reiniciar</button>
+        </div>
+      </div>
+      <div id="lista-bitacora" class="bitacora-scroll"></div>
+    </aside>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
