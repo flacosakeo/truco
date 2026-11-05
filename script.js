@@ -100,9 +100,6 @@ class Carta {
     img.className = "card-img";
     img.alt = revelada ? this.nombre : "Dorso";
     img.src = revelada ? `cartas/${this.archivo}` : `cartas/dorso.svg`;
-    
-    // Carga directa del archivo SVG de tu carpeta cartas/
-    img.src = revelada ? `cartas/${this.archivo}` : `cartas/dorso.svg`;
 
     wrapper.appendChild(img);
 
@@ -140,9 +137,26 @@ let historialEnvido = [];
 let nivelTruco = 0;
 let quienPoseeElQuiero = null;
 let esperandoRespuesta = false;
+let trucoPendiente = null;
 
 let evaluandoVuelta = false;
 let timerBot = null;
+let partidoTerminado = false;
+
+function programarTimerBot(callback, delay) {
+  cancelarTimerBot();
+  timerBot = setTimeout(() => {
+    timerBot = null;
+    callback();
+  }, delay);
+}
+
+function cancelarTimerBot() {
+  if (timerBot) {
+    clearTimeout(timerBot);
+    timerBot = null;
+  }
+}
 
 // Elementos UI
 const scoreJugadorEl = document.getElementById("score-jugador");
@@ -169,6 +183,7 @@ const btnFaltaEnvido = document.getElementById("btn-falta-envido");
 const btnCantoTruco = document.getElementById("btn-canto-truco");
 const btnIrse = document.getElementById("btn-irse");
 const btnSiguiente = document.getElementById("btn-siguiente");
+const btnNuevaPartida = document.getElementById("btn-nueva-partida");
 
 const listaBitacoraEl = document.getElementById("lista-bitacora");
 const totalEntradasEl = document.getElementById("total-entradas");
@@ -186,10 +201,12 @@ function guardarEstadoCompleto() {
     vueltaActual,
     resultadosVueltas,
     manoTerminada,
+    partidoTerminado,
     envidoFinalizado,
     historialEnvido,
     nivelTruco,
     quienPoseeElQuiero,
+    trucoPendiente,
     cartasMesaHistorial: cartasMesaHistorial.map(c => ({
       quien: c.quien,
       vuelta: c.vuelta,
@@ -228,10 +245,12 @@ function recuperarEstadoCompleto() {
     vueltaActual = st.vueltaActual;
     resultadosVueltas = st.resultadosVueltas || [];
     manoTerminada = st.manoTerminada;
+    partidoTerminado = st.partidoTerminado || (scoreJugador >= 30 || scoreBot >= 30);
     envidoFinalizado = st.envidoFinalizado;
     historialEnvido = st.historialEnvido || [];
     nivelTruco = st.nivelTruco || 0;
     quienPoseeElQuiero = st.quienPoseeElQuiero;
+    trucoPendiente = st.trucoPendiente || null;
 
     manoJugador = st.manoJugador.map(c => new Carta(c.numero, c.palo));
     manoBot = st.manoBot.map(c => new Carta(c.numero, c.palo));
@@ -259,19 +278,22 @@ function recuperarEstadoCompleto() {
   }
 }
 
-function reiniciarPartidoCompleto() {
-  if (confirm("¿Deseas reiniciar todo el partido a 0 y repartir una nueva mano?")) {
-    if (timerBot) clearTimeout(timerBot);
+function reiniciarPartidoCompleto(sinConfirmar = false) {
+  if (sinConfirmar || confirm("¿Deseas reiniciar todo el partido a 0 y repartir una nueva mano?")) {
+    cancelarTimerBot();
     localStorage.removeItem("truco_estado_partido");
 
     scoreJugador = 0;
     scoreBot = 0;
     numeroMano = 0;
     manoInicialEsJugador = false;
+    partidoTerminado = false;
+    trucoPendiente = null;
     listaBitacoraEl.innerHTML = "";
     contadorJugadas = 0;
     totalEntradasEl.innerText = "0 jugadas";
 
+    if (btnNuevaPartida) btnNuevaPartida.classList.add("hidden");
     iniciarNuevaMano(true);
   }
 }
@@ -318,16 +340,16 @@ function actualizarMarcador() {
 
   guardarEstadoCompleto();
 
-  if (scoreJugador >= 30) {
+  if (scoreJugador >= 30 && !partidoTerminado) {
+    partidoTerminado = true;
     log("🏆 ¡GANASTE EL PARTIDO A 30 PUNTOS!");
     registrarBitacora("CAMPEÓN", "<strong>🎉 ¡Ganaste el partido!</strong> Has alcanzado 30 puntos.", "tag-gana");
     terminarMano();
-    btnSiguiente.classList.add("hidden");
-  } else if (scoreBot >= 30) {
+  } else if (scoreBot >= 30 && !partidoTerminado) {
+    partidoTerminado = true;
     log("💀 El rival ganó el partido.");
     registrarBitacora("DERROTA", "<strong>💀 El rival alcanzó los 30 puntos</strong> y ganó el partido.", "tag-pierde");
     terminarMano();
-    btnSiguiente.classList.add("hidden");
   }
 }
 
@@ -336,14 +358,16 @@ function actualizarMarcador() {
 // ========================================================
 
 function iniciarNuevaMano(forzarNueva = false) {
-  if (scoreJugador >= 30 || scoreBot >= 30) return;
-
-  if (timerBot) {
-    clearTimeout(timerBot);
-    timerBot = null;
+  if (scoreJugador >= 30 || scoreBot >= 30) {
+    partidoTerminado = true;
+    terminarMano();
+    return;
   }
 
+  cancelarTimerBot();
+
   btnSiguiente.classList.add("hidden");
+  if (btnNuevaPartida) btnNuevaPartida.classList.add("hidden");
 
   numeroMano++;
   manoInicialEsJugador = !manoInicialEsJugador;
@@ -373,6 +397,7 @@ function iniciarNuevaMano(forzarNueva = false) {
   nivelTruco = 0;
   quienPoseeElQuiero = null;
   esperandoRespuesta = false;
+  trucoPendiente = null;
 
   limpiarMesa();
   actualizarMarcador();
@@ -380,7 +405,7 @@ function iniciarNuevaMano(forzarNueva = false) {
   panelRespuesta.classList.add("hidden");
   panelAcciones.classList.remove("hidden");
 
-  habilitarBotonesEnvido(true);
+  actualizarBotonesEnvido();
   btnIrse.disabled = false;
   actualizarBotonTruco();
 
@@ -401,11 +426,13 @@ function iniciarNuevaMano(forzarNueva = false) {
     log("¡Sos mano! Podés cantar Envido o jugar tu carta.");
   } else {
     log("El rival es mano. Aguardá su jugada...");
-    timerBot = setTimeout(turnoDelBot, 1100);
+    programarTimerBot(turnoDelBot, 1100);
   }
 }
 
 function reanudarManoExistente() {
+  cancelarTimerBot();
+
   const quienSale = manoInicialEsJugador ? "Tú eres mano" : "Rival es mano";
   infoManoEl.innerText = `Mano ${numeroMano}: ${quienSale}`;
 
@@ -420,17 +447,20 @@ function reanudarManoExistente() {
   const miTanto = calcularTanto(originalesJugador);
   tantoInfoEl.innerText = `Tu Tanto: ${miTanto}`;
 
-  if (manoTerminada) {
+  if (scoreJugador >= 30 || scoreBot >= 30) {
+    partidoTerminado = true;
+    terminarMano();
+  } else if (manoTerminada) {
     terminarMano();
   } else {
-    habilitarBotonesEnvido(!envidoFinalizado && vueltaActual === 1);
+    actualizarBotonesEnvido();
     btnIrse.disabled = false;
     actualizarBotonTruco();
     renderizarCartas();
 
     if (manoActualDe === "bot" && !evaluandoVuelta) {
       log("Turno del rival. Aguardá su jugada...");
-      timerBot = setTimeout(turnoDelBot, 1000);
+      programarTimerBot(turnoDelBot, 1000);
     } else {
       renderizarCartas();
     }
@@ -464,18 +494,40 @@ function renderizarCartas() {
   });
 
   cartasJugadorEl.innerHTML = "";
-  const puedoJugar = (manoActualDe === "jugador") && !manoTerminada && !esperandoRespuesta && !evaluandoVuelta;
+  const puedoJugar = (manoActualDe === "jugador") && !manoTerminada && !esperandoRespuesta && !evaluandoVuelta && !partidoTerminado;
 
   manoJugador.forEach((carta, index) => {
     const el = carta.crearElemento(true, puedoJugar, () => jugarCartaJugador(index));
     cartasJugadorEl.appendChild(el);
   });
+
+  actualizarBotonesEnvido();
+}
+
+function actualizarBotonesEnvido() {
+  const puedeCantar = !envidoFinalizado &&
+    vueltaActual === 1 &&
+    !manoTerminada &&
+    !partidoTerminado &&
+    !esperandoRespuesta &&
+    !evaluandoVuelta &&
+    nivelTruco === 0 &&
+    manoJugador.length === 3 &&
+    (manoActualDe === "jugador" || cartaMesaBot !== null);
+
+  btnEnvido.disabled = !puedeCantar;
+  btnRealEnvido.disabled = !puedeCantar;
+  btnFaltaEnvido.disabled = !puedeCantar;
 }
 
 function habilitarBotonesEnvido(habilitar) {
-  btnEnvido.disabled = !habilitar;
-  btnRealEnvido.disabled = !habilitar;
-  btnFaltaEnvido.disabled = !habilitar;
+  if (!habilitar) {
+    btnEnvido.disabled = true;
+    btnRealEnvido.disabled = true;
+    btnFaltaEnvido.disabled = true;
+  } else {
+    actualizarBotonesEnvido();
+  }
 }
 
 function actualizarBotonTruco() {
@@ -529,18 +581,23 @@ function puntosEnvidoNoQuerido(historial) {
 }
 
 function cantarEnvido(tipo, quien = "jugador") {
-  if (envidoFinalizado || vueltaActual > 1 || evaluandoVuelta) return;
+  if (envidoFinalizado || vueltaActual > 1 || evaluandoVuelta || manoTerminada || partidoTerminado || nivelTruco > 0) return;
+  if (quien === "jugador" && (manoJugador.length < 3 || (manoActualDe === "bot" && !cartaMesaBot))) {
+    return;
+  }
+
+  cancelarTimerBot();
   habilitarBotonesEnvido(false);
   historialEnvido.push(tipo);
 
   const nombres = { "envido": "¡ENVIDO!", "real-envido": "¡REAL ENVIDO!", "falta-envido": "¡FALTA ENVIDO!" };
-  const grito = nombres[tipo];
+  const grito = nombres[tipo] || tipo;
 
   if (quien === "jugador") {
     log(`Gritaste: ${grito}`);
     registrarBitacora("CANTO", `<strong>Tú</strong> cantaste <strong>${grito}</strong>`, "tag-envido");
     botStatusEl.innerText = "Pensando...";
-    timerBot = setTimeout(() => botEvaluaRespuestaEnvido(tipo), 900);
+    programarTimerBot(() => botEvaluaRespuestaEnvido(tipo), 900);
   } else {
     botStatusEl.innerText = grito;
     log(`El rival gritó: ${grito}`);
@@ -594,24 +651,39 @@ function mostrarDialogoRespuestaEnvido(ultimoCanto) {
 
 function botEvaluaRespuestaEnvido(ultimoCanto) {
   const tantoB = calcularTanto(originalesBot);
-  const probMentir = Math.random();
+  const prob = Math.random();
+  const soyMano = (manoInicialEsJugador === false);
 
-  if (ultimoCanto === "envido" && tantoB >= 29 && probMentir > 0.4) {
-    cantarEnvido("real-envido", "bot");
-    return;
-  }
-  if ((ultimoCanto === "envido" || ultimoCanto === "real-envido") && tantoB >= 31 && probMentir > 0.5) {
-    cantarEnvido("falta-envido", "bot");
-    return;
+  // Redoblar apuesta con Real Envido o Falta Envido
+  if (ultimoCanto === "envido") {
+    if (tantoB >= 31 && prob < 0.70) {
+      cantarEnvido("falta-envido", "bot");
+      return;
+    }
+    if (tantoB >= 29 && prob < 0.55) {
+      cantarEnvido("real-envido", "bot");
+      return;
+    }
+    // Farol ocasional de subida
+    if (tantoB < 25 && prob < 0.07) {
+      cantarEnvido("real-envido", "bot");
+      return;
+    }
+  } else if (ultimoCanto === "real-envido") {
+    if (tantoB >= 31 && prob < 0.60) {
+      cantarEnvido("falta-envido", "bot");
+      return;
+    }
   }
 
+  // Aceptar o Rechazar el Envido
   let acepta = false;
   if (ultimoCanto === "falta-envido") {
-    acepta = tantoB >= 30 || (tantoB >= 28 && probMentir > 0.7);
+    acepta = tantoB >= 31 || (tantoB >= 30 && soyMano) || (tantoB >= 29 && prob < 0.10);
   } else if (ultimoCanto === "real-envido") {
-    acepta = tantoB >= 27 || (tantoB >= 24 && probMentir > 0.6);
+    acepta = tantoB >= 29 || (tantoB >= 28 && soyMano) || (tantoB >= 26 && prob < 0.18);
   } else {
-    acepta = tantoB >= 25 || probMentir > 0.65;
+    acepta = tantoB >= 27 || (tantoB >= 26 && soyMano) || (tantoB >= 24 && prob < 0.15);
   }
 
   resolverEnvidoFinal(acepta, "bot");
@@ -634,39 +706,68 @@ function resolverEnvidoFinal(acepta, quienRespondio) {
 
     let puntos = puntosEnvidoQuerido(historialEnvido);
     if (puntos === "falta") {
-      puntos = ganador === "jugador" ? (30 - scoreBot) : (30 - scoreJugador);
+      const enBuenas = scoreJugador >= 15 || scoreBot >= 15;
+      const maxScore = Math.max(scoreJugador, scoreBot);
+      puntos = enBuenas ? Math.max(1, 30 - maxScore) : Math.max(1, 15 - maxScore);
     }
 
     if (ganador === "jugador") {
-      scoreJugador += puntos;
+      scoreJugador = Math.min(30, scoreJugador + puntos);
       log(`¡Quiero aceptado! Tenés ${tantoJ} vs ${tantoB}. Ganaste el Envido (+${puntos} pts).`);
       registrarBitacora("ENVIDO", `<strong>Ganaste el envido</strong>: Tus ${tantoJ} vs ${tantoB} del rival. (+${puntos} pts)`, "tag-gana");
     } else {
-      scoreBot += puntos;
+      scoreBot = Math.min(30, scoreBot + puntos);
       log(`¡Quiero aceptado! El rival tiene ${tantoB} vs tus ${tantoJ}. Rival gana el Envido (+${puntos} pts).`);
       registrarBitacora("ENVIDO", `<strong>Rival gana el envido</strong>: Sus ${tantoB} vs tus ${tantoJ}. (+${puntos} pts)`, "tag-pierde");
     }
   } else {
     const puntos = puntosEnvidoNoQuerido(historialEnvido);
     if (quienRespondio === "bot") {
-      scoreJugador += puntos;
+      scoreJugador = Math.min(30, scoreJugador + puntos);
       botStatusEl.innerText = "NO QUIERO";
       log(`El rival dijo ¡No quiero! Te llevás ${puntos} pt${puntos > 1 ? 's' : ''}.`);
       registrarBitacora("ENVIDO", `Rival dijo <strong>¡No quiero!</strong> Te llevas +${puntos} pt(s).`, "tag-gana");
     } else {
-      scoreBot += puntos;
+      scoreBot = Math.min(30, scoreBot + puntos);
       log(`Dijiste ¡No quiero! El rival suma ${puntos} pt${puntos > 1 ? 's' : ''}.`);
       registrarBitacora("ENVIDO", `Dijiste <strong>¡No quiero!</strong> El rival suma +${puntos} pt(s).`, "tag-pierde");
     }
   }
 
   actualizarMarcador();
+  if (scoreJugador >= 30 || scoreBot >= 30) {
+    trucoPendiente = null;
+    return;
+  }
+
+  // Si había un Truco pendiente porque se cantó "El envido está primero"
+  if (trucoPendiente) {
+    const pend = trucoPendiente;
+    trucoPendiente = null;
+    envidoFinalizado = true;
+
+    if (pend.quienCanto === "bot") {
+      log("Envido resuelto. Ahora debes responder al TRUCO del rival...");
+      programarTimerBot(() => {
+        botCantaTruco(pend.nivel);
+      }, 1000);
+      return;
+    } else if (pend.quienCanto === "jugador") {
+      log("Envido resuelto. El rival ahora evalúa tu TRUCO...");
+      programarTimerBot(() => {
+        botEvaluaTruco(pend.nivel);
+      }, 1000);
+      return;
+    }
+  }
+
   actualizarBotonTruco();
+  actualizarBotonesEnvido();
   renderizarCartas();
   guardarEstadoCompleto();
 
   if (!cartaMesaBot && manoActualDe === "bot" && !manoTerminada) {
-    timerBot = setTimeout(ejecutarTiradaBot, 900);
+    programarTimerBot(ejecutarTiradaBot, 900);
   }
 }
 
@@ -675,7 +776,10 @@ function resolverEnvidoFinal(acepta, quienRespondio) {
 // ========================================================
 
 function cantarAccionTruco() {
-  if (manoTerminada || evaluandoVuelta) return;
+  if (manoTerminada || evaluandoVuelta || esperandoRespuesta || partidoTerminado) return;
+  cancelarTimerBot();
+
+  habilitarBotonesEnvido(false);
 
   const nuevoNivel = nivelTruco + 1;
   const textos = ["", "¡TRUCO!", "¡RETRUCO!", "¡VALE CUATRO!"];
@@ -685,30 +789,75 @@ function cantarAccionTruco() {
 
   botStatusEl.innerText = "Pensando...";
   guardarEstadoCompleto();
-  timerBot = setTimeout(() => botEvaluaTruco(nuevoNivel), 900);
+  programarTimerBot(() => botEvaluaTruco(nuevoNivel), 900);
 }
 
 function botEvaluaTruco(nuevoNivel) {
-  const maxPoder = Math.max(...manoBot.map(c => c.poder));
+  const poderes = manoBot.map(c => c.poder).sort((a, b) => b - a);
+  const maxPoder = poderes[0] || 0;
+  const segundoPoder = poderes[1] || 0;
   const bluff = Math.random();
 
-  if (nuevoNivel === 1 && (maxPoder >= 11 || (maxPoder >= 9 && bluff > 0.6))) {
-    botCantaTruco(2);
-    return;
-  }
-  if (nuevoNivel === 2 && (maxPoder >= 12 || (maxPoder >= 10 && bluff > 0.7))) {
-    botCantaTruco(3);
-    return;
+  // 1. Si es Truco (nivel 1), en primera vuelta, antes de tirar carta y sin haber jugado envido:
+  // El rival tiene derecho a cantar "¡El envido está primero!" si tiene buen tanto
+  if (nuevoNivel === 1 && !envidoFinalizado && vueltaActual === 1 && manoBot.length === 3) {
+    const tantoB = calcularTanto(originalesBot);
+    if (tantoB >= 26 || (tantoB >= 23 && bluff > 0.65)) {
+      trucoPendiente = { nivel: nuevoNivel, quienCanto: "jugador" };
+      log("El rival responde: ¡El envido está primero!");
+      registrarBitacora("CANTO", "Rival dijo: <strong>¡El envido está primero!</strong>", "tag-envido");
+      cantarEnvido(tantoB >= 31 ? "real-envido" : "envido", "bot");
+      return;
+    }
   }
 
+  // 2. Redoblar con Retruco o Vale 4
+  if (nuevoNivel === 1) {
+    const tieneMonstruo = maxPoder >= 13 || (maxPoder >= 11 && segundoPoder >= 9);
+    if (tieneMonstruo && bluff < 0.60) {
+      nivelTruco = 1;
+      botCantaTruco(2);
+      return;
+    }
+    // Bluff ocasional de Retruco
+    if (maxPoder >= 9 && bluff < 0.12) {
+      nivelTruco = 1;
+      botCantaTruco(2);
+      return;
+    }
+  } else if (nuevoNivel === 2) {
+    if (maxPoder >= 13 || (maxPoder >= 12 && vueltaActual === 3)) {
+      nivelTruco = 2;
+      botCantaTruco(3);
+      return;
+    }
+  }
+
+  // 3. Aceptar o Rechazar
   let acepta = false;
-  if (nuevoNivel === 1) acepta = maxPoder >= 8 || bluff > 0.5;
-  else if (nuevoNivel === 2) acepta = maxPoder >= 9 || bluff > 0.6;
-  else if (nuevoNivel === 3) acepta = maxPoder >= 10 || bluff > 0.75;
+  if (nuevoNivel === 1) {
+    if (vueltaActual === 1) {
+      // En vuelta 1: acepta con carta fuerte (>= 10) o dos medianas (>= 8), o bluff medido (18%)
+      acepta = maxPoder >= 10 || (maxPoder >= 8 && segundoPoder >= 7) || bluff < 0.18;
+    } else {
+      const ganoPrimera = resultadosVueltas[0] === "bot";
+      if (ganoPrimera) {
+        acepta = maxPoder >= 7 || bluff < 0.22;
+      } else {
+        acepta = maxPoder >= 10 || bluff < 0.10;
+      }
+    }
+  } else if (nuevoNivel === 2) {
+    acepta = maxPoder >= 11 || (maxPoder >= 9 && vueltaActual === 3) || bluff < 0.14;
+  } else if (nuevoNivel === 3) {
+    acepta = maxPoder >= 12 || bluff < 0.08;
+  }
 
   if (acepta) {
     nivelTruco = nuevoNivel;
     quienPoseeElQuiero = "bot";
+    envidoFinalizado = true;
+    habilitarBotonesEnvido(false);
     botStatusEl.innerText = "¡QUIERO!";
     const pts = puntosPorNivelTruco(nivelTruco);
 
@@ -719,13 +868,14 @@ function botEvaluaTruco(nuevoNivel) {
 
     if (manoActualDe === "bot") {
       log(`El rival dijo ¡QUIERO! (Por ${pts} pts). Tira su carta...`);
-      timerBot = setTimeout(ejecutarTiradaBot, 900);
+      programarTimerBot(ejecutarTiradaBot, 900);
     } else {
       log(`El rival dijo ¡QUIERO! (Por ${pts} pts). Es tu turno.`);
     }
   } else {
+    envidoFinalizado = true;
     const puntosOtorgados = nivelTruco === 0 ? 1 : puntosPorNivelTruco(nivelTruco);
-    scoreJugador += puntosOtorgados;
+    scoreJugador = Math.min(30, scoreJugador + puntosOtorgados);
     botStatusEl.innerText = "NO QUIERO";
     log(`El rival dijo ¡NO QUIERO! Te llevás ${puntosOtorgados} pt${puntosOtorgados > 1 ? 's' : ''}.`);
     registrarBitacora("TRUCO", `Rival dijo <strong>¡NO QUIERO!</strong> Te llevas <strong>+${puntosOtorgados} pt(s)</strong>.`, "tag-gana");
@@ -735,9 +885,14 @@ function botEvaluaTruco(nuevoNivel) {
 }
 
 function botCantaTruco(nuevoNivel) {
+  cancelarTimerBot();
   esperandoRespuesta = true;
+  habilitarBotonesEnvido(false);
+
+  const puedeCantarEnvidoPrimero = (nuevoNivel === 1 && !envidoFinalizado && vueltaActual === 1 && manoJugador.length === 3);
+
   const nombres = ["", "¡TRUCO!", "¡RETRUCO!", "¡VALE CUATRO!"];
-  const grito = nombres[nuevoNivel];
+  const grito = nombres[nuevoNivel] || "¡TRUCO!";
   botStatusEl.innerText = grito;
   log(`El rival cantó: ${grito}`);
   registrarBitacora("CANTO", `<strong>Rival</strong> cantó <strong>${grito}</strong>`, "tag-truco");
@@ -753,6 +908,7 @@ function botCantaTruco(nuevoNivel) {
   bQuiero.innerText = "¡QUIERO!";
   bQuiero.onclick = () => {
     esperandoRespuesta = false;
+    envidoFinalizado = true;
     panelRespuesta.classList.add("hidden");
     panelAcciones.classList.remove("hidden");
     nivelTruco = nuevoNivel;
@@ -765,7 +921,7 @@ function botCantaTruco(nuevoNivel) {
     guardarEstadoCompleto();
 
     if (manoActualDe === "bot" && !cartaMesaBot) {
-      timerBot = setTimeout(ejecutarTiradaBot, 900);
+      programarTimerBot(ejecutarTiradaBot, 900);
     }
   };
   botonesRespuestaEl.appendChild(bQuiero);
@@ -776,10 +932,11 @@ function botCantaTruco(nuevoNivel) {
   bNoQuiero.innerText = "¡NO QUIERO!";
   bNoQuiero.onclick = () => {
     esperandoRespuesta = false;
+    envidoFinalizado = true;
     panelRespuesta.classList.add("hidden");
     panelAcciones.classList.remove("hidden");
     const puntosOtorgados = nivelTruco === 0 ? 1 : puntosPorNivelTruco(nivelTruco);
-    scoreBot += puntosOtorgados;
+    scoreBot = Math.min(30, scoreBot + puntosOtorgados);
     log(`Dijiste ¡No quiero! El rival suma ${puntosOtorgados} pt${puntosOtorgados > 1 ? 's' : ''}.`);
     registrarBitacora("TRUCO", `Dijiste <strong>¡No quiero!</strong> Rival suma <strong>+${puntosOtorgados} pt(s)</strong>.`, "tag-pierde");
     actualizarMarcador();
@@ -794,6 +951,7 @@ function botCantaTruco(nuevoNivel) {
     bRetruco.innerText = "¡Retruco!";
     bRetruco.onclick = () => {
       esperandoRespuesta = false;
+      envidoFinalizado = true;
       panelRespuesta.classList.add("hidden");
       panelAcciones.classList.remove("hidden");
       nivelTruco = 1;
@@ -814,8 +972,167 @@ function botCantaTruco(nuevoNivel) {
     };
     botonesRespuestaEl.appendChild(bVale4);
   }
+
+  // Si el rival cantó Truco en Vuelta 1 antes de jugar cartas y no se cantó envido aún:
+  if (puedeCantarEnvidoPrimero) {
+    const bEnvidoPrimero = document.createElement("button");
+    bEnvidoPrimero.type = "button";
+    bEnvidoPrimero.className = "action-btn envido";
+    bEnvidoPrimero.innerText = "¡El Envido está primero!";
+    bEnvidoPrimero.onclick = () => {
+      trucoPendiente = { nivel: nuevoNivel, quienCanto: "bot" };
+      panelRespuesta.classList.add("hidden");
+      log("Dijiste: ¡El envido está primero!");
+      registrarBitacora("CANTO", "Dijiste: <strong>¡El envido está primero!</strong>", "tag-envido");
+      cantarEnvido("envido", "jugador");
+    };
+    botonesRespuestaEl.appendChild(bEnvidoPrimero);
+
+    const bRealPrimero = document.createElement("button");
+    bRealPrimero.type = "button";
+    bRealPrimero.className = "action-btn envido";
+    bRealPrimero.innerText = "¡Real Envido primero!";
+    bRealPrimero.onclick = () => {
+      trucoPendiente = { nivel: nuevoNivel, quienCanto: "bot" };
+      panelRespuesta.classList.add("hidden");
+      log("Dijiste: ¡Real Envido primero!");
+      registrarBitacora("CANTO", "Dijiste: <strong>¡Real Envido primero!</strong>", "tag-envido");
+      cantarEnvido("real-envido", "jugador");
+    };
+    botonesRespuestaEl.appendChild(bRealPrimero);
+
+    const bFaltaPrimero = document.createElement("button");
+    bFaltaPrimero.type = "button";
+    bFaltaPrimero.className = "action-btn envido";
+    bFaltaPrimero.innerText = "¡Falta Envido primero!";
+    bFaltaPrimero.onclick = () => {
+      trucoPendiente = { nivel: nuevoNivel, quienCanto: "bot" };
+      panelRespuesta.classList.add("hidden");
+      log("Dijiste: ¡Falta Envido primero!");
+      registrarBitacora("CANTO", "Dijiste: <strong>¡Falta Envido primero!</strong>", "tag-envido");
+      cantarEnvido("falta-envido", "jugador");
+    };
+    botonesRespuestaEl.appendChild(bFaltaPrimero);
+  }
+
   renderizarCartas();
   guardarEstadoCompleto();
+}
+
+// ========================================================
+// INTELIGENCIA ARTIFICIAL (TOMA DE DECISIONES)
+// ========================================================
+
+function botEvaluaCantarEnvidoInicial() {
+  if (envidoFinalizado || vueltaActual !== 1 || nivelTruco > 0) return null;
+
+  const tanto = calcularTanto(originalesBot);
+  const soyMano = (manoInicialEsJugador === false);
+  const azar = Math.random();
+
+  // Con tanto altísimo (31 a 33):
+  if (tanto >= 31) {
+    if (azar < 0.60) return "envido";
+    if (azar < 0.85) return "real-envido";
+    return null; // Espera para sorprender con contra-apuesta
+  }
+
+  // Con tanto muy bueno (29 o 30):
+  if (tanto >= 29) {
+    if (soyMano) {
+      if (azar < 0.65) return "envido";
+      if (azar < 0.80) return "real-envido";
+    } else {
+      if (azar < 0.45) return "envido";
+    }
+    return null;
+  }
+
+  // Con tanto bueno (27 o 28):
+  if (tanto >= 27) {
+    if (soyMano && azar < 0.35) return "envido";
+    if (!soyMano && azar < 0.15) return "envido";
+    return null;
+  }
+
+  // Farol / Bluff ocasional con tanto bajo (< 25):
+  // 6% de probabilidad de cantar envido mintiendo
+  if (tanto < 25 && azar < 0.06) {
+    return azar < 0.02 ? "real-envido" : "envido";
+  }
+
+  return null;
+}
+
+function botEvaluaCantarTrucoInicial() {
+  if (nivelTruco !== 0 || manoTerminada || evaluandoVuelta) return false;
+
+  const poderes = manoBot.map(c => c.poder).sort((a, b) => b - a);
+  const maxPoder = poderes[0] || 0;
+  const segundoPoder = poderes[1] || 0;
+  const azar = Math.random();
+
+  // VUELTA 1:
+  if (vueltaActual === 1) {
+    // Si tiene cartas descomunales (Ancho de Espada/Basto + carta buena):
+    // Prefiere NO cantar en primera para no espantar al jugador y atraparlo en 2da o con retruco
+    if (maxPoder >= 13 && segundoPoder >= 9) {
+      return azar < 0.15; // 85% de las veces se hace el dormido
+    }
+
+    // Mano buena equilibrada:
+    if (maxPoder >= 11 && segundoPoder >= 8) {
+      return azar < 0.20;
+    }
+
+    // Carta solitaria respetable (un 3 o 2): rara vez canta de una (5%), juega callado
+    if (maxPoder >= 9) {
+      return azar < 0.05;
+    }
+
+    // Farol con cartas débiles (< 8): 7% de probabilidad de bluffear de entrada
+    if (maxPoder < 8 && azar < 0.07) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // VUELTA 2:
+  if (vueltaActual === 2) {
+    const ganoPrimera = resultadosVueltas[0] === "bot";
+    const perdioPrimera = resultadosVueltas[0] === "jugador";
+    const primeraParda = resultadosVueltas[0] === "parda";
+
+    if (ganoPrimera) {
+      // Tiene primera ganada: posición ideal para presionar
+      if (maxPoder >= 9) return azar < 0.65;
+      if (maxPoder >= 6) return azar < 0.35;
+      return azar < 0.15; // bluff habiendo ganado primera
+    }
+
+    if (primeraParda) {
+      // La segunda vuelta define la mano:
+      if (maxPoder >= 10) return azar < 0.70;
+      if (maxPoder >= 8) return azar < 0.40;
+      return azar < 0.10; // bluff
+    }
+
+    if (perdioPrimera) {
+      // Perdió primera, está en riesgo:
+      if (maxPoder >= 12) return azar < 0.50;
+      return azar < 0.05; // bluff desesperado
+    }
+  }
+
+  // VUELTA 3:
+  if (vueltaActual === 3) {
+    if (maxPoder >= 10) return azar < 0.85; // con un 3 o mejor canta casi seguro
+    if (maxPoder >= 8) return azar < 0.40;  // con un 2 o ancho falso
+    if (maxPoder < 7) return azar < 0.08;   // bluff última carta
+  }
+
+  return false;
 }
 
 // ========================================================
@@ -823,24 +1140,39 @@ function botCantaTruco(nuevoNivel) {
 // ========================================================
 
 function turnoDelBot() {
-  if (manoTerminada || manoActualDe !== "bot" || esperandoRespuesta || evaluandoVuelta) return;
+  if (manoTerminada || manoActualDe !== "bot" || esperandoRespuesta || evaluandoVuelta || partidoTerminado) return;
 
   botStatusEl.innerText = "Pensando...";
 
-  if (!envidoFinalizado && vueltaActual === 1) {
-    const tantoBot = calcularTanto(originalesBot);
-    const miente = Math.random() < 0.22;
-    if (tantoBot >= 27 || miente) {
-      cantarEnvido(tantoBot >= 31 ? "real-envido" : "envido", "bot");
+  // 1. Evalúa si cantar Envido
+  if (!envidoFinalizado && vueltaActual === 1 && nivelTruco === 0) {
+    const cantoEnvido = botEvaluaCantarEnvidoInicial();
+    if (cantoEnvido) {
+      cantarEnvido(cantoEnvido, "bot");
       return;
     }
   }
 
+  // 2. Evalúa si cantar Truco / Retruco / Vale 4
+  const poderes = manoBot.map(c => c.poder).sort((a, b) => b - a);
+  const maxPoder = poderes[0] || 0;
+  const azar = Math.random();
+
   if (nivelTruco === 0) {
-    const maxPoder = Math.max(...manoBot.map(c => c.poder));
-    const mienteTruco = Math.random() < 0.20;
-    if (maxPoder >= 10 || (vueltaActual >= 2 && maxPoder >= 8) || mienteTruco) {
+    if (botEvaluaCantarTrucoInicial()) {
       botCantaTruco(1);
+      return;
+    }
+  } else if (nivelTruco === 1 && quienPoseeElQuiero === "bot") {
+    // Para cantar RETRUCO en su turno:
+    if (maxPoder >= 11 || (vueltaActual === 3 && maxPoder >= 9) || (azar < 0.10)) {
+      botCantaTruco(2);
+      return;
+    }
+  } else if (nivelTruco === 2 && quienPoseeElQuiero === "bot") {
+    // Para cantar VALE 4 en su turno:
+    if (maxPoder >= 13 || (vueltaActual === 3 && maxPoder >= 11)) {
+      botCantaTruco(3);
       return;
     }
   }
@@ -849,7 +1181,7 @@ function turnoDelBot() {
 }
 
 function ejecutarTiradaBot() {
-  if (manoTerminada || evaluandoVuelta) return;
+  if (manoTerminada || evaluandoVuelta || partidoTerminado) return;
 
   manoBot.sort((a, b) => a.poder - b.poder);
   let elegida = null;
@@ -883,9 +1215,10 @@ function ejecutarTiradaBot() {
 }
 
 function jugarCartaJugador(indice) {
-  if (manoActualDe !== "jugador" || manoTerminada || esperandoRespuesta || evaluandoVuelta) return;
+  if (manoActualDe !== "jugador" || manoTerminada || esperandoRespuesta || evaluandoVuelta || partidoTerminado) return;
   if (!manoJugador[indice]) return;
 
+  cancelarTimerBot();
   habilitarBotonesEnvido(false);
   const carta = manoJugador.splice(indice, 1)[0];
   cartaMesaJugador = carta;
@@ -904,12 +1237,13 @@ function jugarCartaJugador(indice) {
     actualizarBotonTruco();
     renderizarCartas();
     guardarEstadoCompleto();
-    timerBot = setTimeout(turnoDelBot, 800);
+    programarTimerBot(turnoDelBot, 800);
   }
 }
 
 function evaluarVuelta() {
   evaluandoVuelta = true;
+  cancelarTimerBot();
   let ganadorVuelta = null;
   const numV = vueltaActual;
 
@@ -935,7 +1269,7 @@ function evaluarVuelta() {
   vueltaActual++;
   guardarEstadoCompleto();
 
-  timerBot = setTimeout(() => {
+  programarTimerBot(() => {
     evaluandoVuelta = false;
     const fin = resolverGanadorDeMano();
 
@@ -952,10 +1286,18 @@ function evaluarVuelta() {
       guardarEstadoCompleto();
 
       if (manoActualDe === "bot") {
-        log("El rival ganó la vuelta y sale jugando primero...");
-        timerBot = setTimeout(turnoDelBot, 900);
+        if (ganadorVuelta === "parda") {
+          log("¡Parda! El rival sale jugando por ser mano...");
+        } else {
+          log("El rival ganó la vuelta y sale jugando primero...");
+        }
+        programarTimerBot(turnoDelBot, 900);
       } else {
-        log("Ganaste la vuelta. ¡Salís jugando vos!");
+        if (ganadorVuelta === "parda") {
+          log("¡Parda! Salís jugando vos por ser mano.");
+        } else {
+          log("Ganaste la vuelta. ¡Salís jugando vos!");
+        }
       }
     }
   }, 1200);
@@ -988,11 +1330,11 @@ function resolverGanadorDeMano() {
 function asignarPuntosTruco(ganador) {
   const pts = puntosPorNivelTruco(nivelTruco);
   if (ganador === "jugador") {
-    scoreJugador += pts;
+    scoreJugador = Math.min(30, scoreJugador + pts);
     log(`🎉 ¡Ganaste la mano! (+${pts} pt${pts > 1 ? 's' : ''}). Pulsa "Siguiente Mano".`);
     registrarBitacora("MANO", `<strong>🎉 Te llevaste la mano</strong> (+${pts} pt${pts > 1 ? 's' : ''}). Marcador: Tú <strong>${scoreJugador}</strong> - Rival <strong>${scoreBot}</strong>.`, "tag-gana");
   } else {
-    scoreBot += pts;
+    scoreBot = Math.min(30, scoreBot + pts);
     log(`💀 El rival ganó la mano (+${pts} pt${pts > 1 ? 's' : ''}). Pulsa "Siguiente Mano".`);
     registrarBitacora("MANO", `<strong>💀 El rival ganó la mano</strong> (+${pts} pt${pts > 1 ? 's' : ''}). Marcador: Tú <strong>${scoreJugador}</strong> - Rival <strong>${scoreBot}</strong>.`, "tag-pierde");
   }
@@ -1000,9 +1342,10 @@ function asignarPuntosTruco(ganador) {
 }
 
 function irseAlMazo() {
-  if (manoTerminada || evaluandoVuelta) return;
+  if (manoTerminada || evaluandoVuelta || esperandoRespuesta || partidoTerminado) return;
+  cancelarTimerBot();
   const pts = puntosPorNivelTruco(nivelTruco);
-  scoreBot += pts;
+  scoreBot = Math.min(30, scoreBot + pts);
   log(`Te fuiste al mazo. El rival suma ${pts} pt${pts > 1 ? 's' : ''}. Pulsa "Siguiente Mano".`);
   registrarBitacora("AL MAZO", `Te fuiste al mazo. Rival suma <strong>+${pts} pt(s)</strong>. Marcador: Tú <strong>${scoreJugador}</strong> - Rival <strong>${scoreBot}</strong>.`, "tag-pierde");
   actualizarMarcador();
@@ -1010,13 +1353,23 @@ function irseAlMazo() {
 }
 
 function terminarMano() {
+  cancelarTimerBot();
   manoTerminada = true;
   manoActualDe = null;
   evaluandoVuelta = false;
   habilitarBotonesEnvido(false);
   btnCantoTruco.disabled = true;
   btnIrse.disabled = true;
-  btnSiguiente.classList.remove("hidden");
+
+  if (scoreJugador >= 30 || scoreBot >= 30) {
+    partidoTerminado = true;
+    btnSiguiente.classList.add("hidden");
+    if (btnNuevaPartida) btnNuevaPartida.classList.remove("hidden");
+  } else {
+    btnSiguiente.classList.remove("hidden");
+    if (btnNuevaPartida) btnNuevaPartida.classList.add("hidden");
+  }
+
   renderizarCartas();
   guardarEstadoCompleto();
 }
