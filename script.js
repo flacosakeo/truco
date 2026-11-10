@@ -581,9 +581,10 @@ function puntosEnvidoNoQuerido(historial) {
 }
 
 function cantarEnvido(tipo, quien = "jugador") {
-  if (envidoFinalizado || vueltaActual > 1 || evaluandoVuelta || manoTerminada || partidoTerminado || nivelTruco > 0) return;
-  if (quien === "jugador" && (manoJugador.length < 3 || (manoActualDe === "bot" && !cartaMesaBot))) {
-    return;
+  if (envidoFinalizado || vueltaActual > 1 || evaluandoVuelta || manoTerminada || partidoTerminado || (nivelTruco > 0 && !trucoPendiente)) return;
+  if (quien === "jugador") {
+    if (manoJugador.length < 3) return;
+    if (!trucoPendiente && manoActualDe === "bot" && !cartaMesaBot) return;
   }
 
   cancelarTimerBot();
@@ -594,8 +595,11 @@ function cantarEnvido(tipo, quien = "jugador") {
   const grito = nombres[tipo] || tipo;
 
   if (quien === "jugador") {
-    log(`Gritaste: ${grito}`);
-    registrarBitacora("CANTO", `<strong>Tú</strong> cantaste <strong>${grito}</strong>`, "tag-envido");
+    const esRespuestaTruco = (trucoPendiente && trucoPendiente.quienCanto === "bot");
+    if (!esRespuestaTruco) {
+      log(`Gritaste: ${grito}`);
+      registrarBitacora("CANTO", `<strong>Tú</strong> cantaste <strong>${grito}</strong>`, "tag-envido");
+    }
     botStatusEl.innerText = "Pensando...";
     programarTimerBot(() => botEvaluaRespuestaEnvido(tipo), 900);
   } else {
@@ -747,9 +751,10 @@ function resolverEnvidoFinal(acepta, quienRespondio) {
     envidoFinalizado = true;
 
     if (pend.quienCanto === "bot") {
+      panelAcciones.classList.add("hidden");
       log("Envido resuelto. Ahora debes responder al TRUCO del rival...");
       programarTimerBot(() => {
-        botCantaTruco(pend.nivel);
+        botCantaTruco(pend.nivel, true);
       }, 1000);
       return;
     } else if (pend.quienCanto === "jugador") {
@@ -884,7 +889,7 @@ function botEvaluaTruco(nuevoNivel) {
   }
 }
 
-function botCantaTruco(nuevoNivel) {
+function botCantaTruco(nuevoNivel, esReanudacion = false) {
   cancelarTimerBot();
   esperandoRespuesta = true;
   habilitarBotonesEnvido(false);
@@ -894,12 +899,17 @@ function botCantaTruco(nuevoNivel) {
   const nombres = ["", "¡TRUCO!", "¡RETRUCO!", "¡VALE CUATRO!"];
   const grito = nombres[nuevoNivel] || "¡TRUCO!";
   botStatusEl.innerText = grito;
-  log(`El rival cantó: ${grito}`);
-  registrarBitacora("CANTO", `<strong>Rival</strong> cantó <strong>${grito}</strong>`, "tag-truco");
+
+  if (esReanudacion) {
+    log(`Ahora debes responder al ${grito} del rival.`);
+  } else {
+    log(`El rival cantó: ${grito}`);
+    registrarBitacora("CANTO", `<strong>Rival</strong> cantó <strong>${grito}</strong>`, "tag-truco");
+  }
 
   panelAcciones.classList.add("hidden");
   panelRespuesta.classList.remove("hidden");
-  respuestaPreguntaEl.innerText = `Rival canta: ${grito}`;
+  respuestaPreguntaEl.innerText = esReanudacion ? `Responde al: ${grito}` : `Rival canta: ${grito}`;
   botonesRespuestaEl.innerHTML = "";
 
   const bQuiero = document.createElement("button");
@@ -965,6 +975,7 @@ function botCantaTruco(nuevoNivel) {
     bVale4.innerText = "¡Vale Cuatro!";
     bVale4.onclick = () => {
       esperandoRespuesta = false;
+      envidoFinalizado = true;
       panelRespuesta.classList.add("hidden");
       panelAcciones.classList.remove("hidden");
       nivelTruco = 2;
@@ -981,6 +992,7 @@ function botCantaTruco(nuevoNivel) {
     bEnvidoPrimero.innerText = "¡El Envido está primero!";
     bEnvidoPrimero.onclick = () => {
       trucoPendiente = { nivel: nuevoNivel, quienCanto: "bot" };
+      esperandoRespuesta = false;
       panelRespuesta.classList.add("hidden");
       log("Dijiste: ¡El envido está primero!");
       registrarBitacora("CANTO", "Dijiste: <strong>¡El envido está primero!</strong>", "tag-envido");
@@ -994,6 +1006,7 @@ function botCantaTruco(nuevoNivel) {
     bRealPrimero.innerText = "¡Real Envido primero!";
     bRealPrimero.onclick = () => {
       trucoPendiente = { nivel: nuevoNivel, quienCanto: "bot" };
+      esperandoRespuesta = false;
       panelRespuesta.classList.add("hidden");
       log("Dijiste: ¡Real Envido primero!");
       registrarBitacora("CANTO", "Dijiste: <strong>¡Real Envido primero!</strong>", "tag-envido");
@@ -1007,6 +1020,7 @@ function botCantaTruco(nuevoNivel) {
     bFaltaPrimero.innerText = "¡Falta Envido primero!";
     bFaltaPrimero.onclick = () => {
       trucoPendiente = { nivel: nuevoNivel, quienCanto: "bot" };
+      esperandoRespuesta = false;
       panelRespuesta.classList.add("hidden");
       log("Dijiste: ¡Falta Envido primero!");
       registrarBitacora("CANTO", "Dijiste: <strong>¡Falta Envido primero!</strong>", "tag-envido");
